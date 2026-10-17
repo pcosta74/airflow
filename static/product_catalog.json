@@ -1,0 +1,38 @@
+[
+  {
+    "sku": "CABLE-HDMI",
+    "description": "High Speed HDMI 2.0 Digital Video & Audio Cable (6ft, 4K Support)",
+    "category": "Electronics",
+    "price": 15.0
+  },
+  {
+    "sku": "DESK-PAD",
+    "description": "Extended Large Felt Desk Mat & Protective Stitch Blotter",
+    "category": "Office",
+    "price": 25.0
+  },
+  {
+    "sku": "KB-MECH-01",
+    "description": "Wired Mechanical Gaming Keyboard (104 Key, Blue Clicky Switches)",
+    "category": "Electronics",
+    "price": 120.0
+  },
+  {
+    "sku": "LAPTOP-STAND",
+    "description": "Aluminium Ergonomic Laptop Stand & Notebook Riser",
+    "category": "Office",
+    "price": 35.99
+  },
+  {
+    "sku": "MONITOR-4K",
+    "description": "27-inch 4K UltraHD LED Flat Screen Display (3840x2160)",
+    "category": "Electronics",
+    "price": 450.0
+  },
+  {
+    "sku": "MOUSE-WRLSS",
+    "description": "Ergonomic Wireless Bluetooth Optical Mouse",
+    "category": "Electronics",
+    "price": 45.5
+  }
+]

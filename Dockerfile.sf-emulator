@@ -1,0 +1,22 @@
+FROM ghcr.io/nnnkkk7/snowflake-emulator:latest
+
+USER root
+
+RUN apt-get update && \
+    apt-get install -y gettext-base nginx python3 && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /etc/nginx/ssl
+RUN rm -f /etc/nginx/sites-enabled/default
+
+COPY static/sf-emulator-nginx.crt /etc/nginx/ssl/nginx.crt
+COPY static/sf-emulator-nginx.key /etc/nginx/ssl/nginx.key
+
+COPY static/sf-emulator-nginx.conf /etc/nginx/conf.d/nginx.conf
+COPY static/snowflake_gzip_proxy.py /app/snowflake_gzip_proxy.py
+COPY sf-emulator-entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+EXPOSE 443 4465
+
+ENTRYPOINT ["/app/entrypoint.sh", "4566"]

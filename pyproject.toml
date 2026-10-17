@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "airflow-example"
+version = "0.1.0"
+description = "A simple Airflow example"
+authors = [
+    { name = "Pedro Costa", email = "pedro.mpm.costa@gmail.com" }
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+]
+license = { file = "LICENSE" }
+readme = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+    "alembic",
+    "apache-airflow[celery]==3.3.2",
+    "apache-airflow-providers-amazon",
+    "apache-airflow-providers-common-ai[openai]",
+    "apache-airflow-providers-common-sql",
+    "apache-airflow-providers-http",
+    "apache-airflow-providers-snowflake",
+    "apache-airflow-providers-standard",
+    "apache-airflow-providers-postgres",
+    "dotenv",
+    "duckdb",
+    "flask",
+    "onnxruntime",
+    "pandas",
+    "pyarrow",
+    "pyyaml",
+    "sentence_transformers",
+    "superset",
+    "scikit-learn",
+    "skl2onnx",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["data_infra*"]
+
+[tool.setuptools.package-data]
+"data_infra" = ["**/*.sql"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 90
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "I", "AIR"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+force-single-line = false
+known-first-party = ["data_infra"]

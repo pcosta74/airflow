@@ -1,0 +1,276 @@
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: ./deploy/Dockerfile.airflow
+  env_file:
+    - .env
+  environment:
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:?Set AIRFLOW_JWT_SECRET in .env}
+    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: ${AIRFLOW_EXECUTION_API_URL:?Set AIRFLOW_EXECUTION_API_URL in .env}
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/src/data_infra/dags
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_SIMPLE_AUTH_MANAGER_USERS:?Set AIRFLOW_SIMPLE_AUTH_MANAGER_USERS in .env}
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW_DATABASE_URL:?Set AIRFLOW_DATABASE_URL in .env}
+    AIRFLOW__LOGGING__LOGGING_CONFIG_CLASS: data_infra.infra_logging.AIRFLOW_LOGGING_CONFIG
+    AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
+    PIM_API_URL: ${PIM_API_URL:?Set PIM_API_URL in .env}
+  volumes:
+    - .:/opt/airflow
+    - ./logs:/opt/airflow/logs
+  restart: unless-stopped
+  depends_on:
+    pg-airflow:
+      condition: service_healthy
+
+x-airflow-worker-common: &airflow-worker-common
+  <<: *airflow-common
+  env_file:
+    - .env
+  environment:
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:?Set AIRFLOW_JWT_SECRET in .env}
+    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: ${AIRFLOW_EXECUTION_API_URL:?Set AIRFLOW_EXECUTION_API_URL in .env}
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/src/data_infra/dags
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: ${AIRFLOW_SIMPLE_AUTH_MANAGER_USERS:?Set AIRFLOW_SIMPLE_AUTH_MANAGER_USERS in .env}
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${AIRFLOW_DATABASE_URL:?Set AIRFLOW_DATABASE_URL in .env}
+    AIRFLOW__LOGGING__LOGGING_CONFIG_CLASS: data_infra.infra_logging.AIRFLOW_LOGGING_CONFIG
+    AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
+    PIM_API_URL: ${PIM_API_URL:?Set PIM_API_URL in .env}
+    AIRFLOW__CELERY__BROKER_URL: ${AIRFLOW_CELERY_BROKER_URL:?Set AIRFLOW_CELERY_BROKER_URL in .env}
+    AIRFLOW__CELERY__RESULT_BACKEND: ${AIRFLOW_CELERY_RESULT_BACKEND:?Set AIRFLOW_CELERY_RESULT_BACKEND in .env}
+    ML_MODEL_DIR: ${ML_MODEL_DIR:?Set ML_MODEL_DIR in .env}
+    DATALAKE_ROOT_PATH: ${DATALAKE_ROOT_PATH:?Set DATALAKE_ROOT_PATH in .env}
+    EXTRACT_CHUNK_SIZE: ${EXTRACT_CHUNK_SIZE:?Set EXTRACT_CHUNK_SIZE in .env}
+    MAX_ALLOWED_ANOMALY_RATE: ${MAX_ALLOWED_ANOMALY_RATE:?Set MAX_ALLOWED_ANOMALY_RATE in .env}
+    ESTIMATED_VAT_RATE: ${ESTIMATED_VAT_RATE:?Set ESTIMATED_VAT_RATE in .env}
+  volumes:
+    - .:/opt/airflow
+    - ./logs:/opt/airflow/logs
+    - ./datalake:${DATALAKE_ROOT_PATH:-/opt/airflow/datalake}
+  depends_on:
+    pg-airflow:
+      condition: service_healthy
+    pg-shop:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    pim:
+      condition: service_healthy
+    airflow-init:
+      condition: service_completed_successfully
+  healthcheck:
+    test:
+      [
+        "CMD-SHELL",
+        'celery --app airflow.providers.celery.executors.celery_executor.app inspect ping --destination "celery@$${HOSTNAME}"',
+      ]
+    interval: 30s
+    timeout: 10s
+    retries: 5
+    start_period: 30s
+
+services:
+  pim:
+    build:
+      context: .
+      dockerfile: ./Dockerfile.pim
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ----------------------------------------------------
+  # 1. METADATA PLATFORM ENGINE (OLTP)
+  # ----------------------------------------------------
+  pg-airflow:
+    image: postgres:15-alpine
+    container_name: pg-airflow
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${AIRFLOW_DB:?Set AIRFLOW_DB in .env}
+      POSTGRES_USER: ${AIRFLOW_USER:?Set AIRFLOW_USER in .env}
+      POSTGRES_PASSWORD: ${AIRFLOW_PASSWORD:?Set AIRFLOW_PASSWORD in .env}
+    ports:
+      - "5433:5432"
+    volumes:
+      - airflow_metadata_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d ${AIRFLOW_DB} -U ${AIRFLOW_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------
+  # 2. DEDICATED E-COMMERCE STORE DATABASE (OLTP)
+  # ----------------------------------------------------
+  pg-shop:
+    image: postgres:15-alpine
+    container_name: pg-shop
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${SHOP_DB:?Set SHOP_DB in .env}
+      POSTGRES_USER: ${SHOP_USER:?Set SHOP_USER in .env}
+      POSTGRES_PASSWORD: ${SHOP_PASSWORD:?Set SHOP_PASSWORD in .env}
+    ports:
+      - "5432:5432"
+    volumes:
+      - shop_transactional_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d ${SHOP_DB} -U ${SHOP_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------
+  # 3. MESSAGE BROKER DISTRIBUTED STORAGE LAYER
+  # ----------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------
+  # 4. SUPERSET ANALYTICS DASHBOARD
+  # ----------------------------------------------------
+  superset:
+    build:
+      context: .
+      dockerfile: ./deploy/Dockerfile.superset
+      args:
+        - ADDITIONAL_REQUIREMENTS=${SUPERSET_ADDITIONAL_REQUIREMENTS:?Set SUPERSET_ADDITIONAL_REQUIREMENTS in .env}
+    container_name: superset-analytics
+    # restart: unless-stopped
+    restart: "no"
+    ports:
+      - "8088:8088"
+    volumes:
+      - ./datalake:/data
+      - superset_home:/app/superset_home
+    env_file:
+      - .env
+    environment:
+      - ADMIN_EMAIL=${SUPERSET_ADMIN_EMAIL:?Set SUPERSET_ADMIN_EMAIL in .env}
+      - ADMIN_FIRSTNAME=${SUPERSET_ADMIN_FIRSTNAME:?Set SUPERSET_ADMIN_FIRSTNAME in .env}
+      - ADMIN_LASTNAME=${SUPERSET_ADMIN_LASTNAME:?Set SUPERSET_ADMIN_LASTNAME in .env}
+      - ADMIN_USERNAME=${SUPERSET_ADMIN_USERNAME:?Set SUPERSET_ADMIN_USERNAME in .env}
+      - ADMIN_PASSWORD=${SUPERSET_ADMIN_PASSWORD:?Set SUPERSET_ADMIN_PASSWORD in .env}
+      - SUPERSET_SECRET_KEY=${SUPERSET_SECRET_KEY:?Set SUPERSET_SECRET_KEY in .env}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8088/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ----------------------------------------------------
+  # 5. AIRFLOW WEB INTERFACE & SCHEDULER OPERATIONS
+  # ----------------------------------------------------
+  airflow-api-server:
+    <<: *airflow-common
+    command: api-server
+    container_name: airflow-api-server
+    ports:
+      - "8080:8080"
+    depends_on:
+      pg-airflow:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v2/monitor/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    command: dag-processor
+    container_name: airflow-dag-processor
+    depends_on:
+      pg-airflow:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    container_name: airflow-scheduler
+    depends_on:
+      pg-airflow:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "airflow", "db", "check"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ----------------------------------------------------
+  # 6. DISTRIBUTED CELERY TASK RUNTIME WORKERS
+  # ----------------------------------------------------
+  airflow-worker-api:
+    <<: *airflow-worker-common
+    command: celery worker -q api_workers
+    container_name: airflow-worker-api
+
+  airflow-worker-compute:
+    <<: *airflow-worker-common
+    command: celery worker -q heavy_compute_workers
+    container_name: airflow-worker-compute
+
+  airflow-worker-db:
+    <<: *airflow-worker-common
+    command: celery worker -q db_write_workers
+    container_name: airflow-worker-db
+
+  airflow-worker-ml:
+    <<: *airflow-worker-common
+    command: celery worker -q ml_workers --concurrency=1
+    container_name: airflow-worker-ml
+
+  airflow-worker-utility:
+    <<: *airflow-worker-common
+    command: celery worker -q utility_workers
+    container_name: airflow-worker-utility
+
+  #----------------------------------------------------
+  # 7. PLATFORM COMPILER & ALIGNMENT RUNTIME INIT
+  #----------------------------------------------------
+  airflow-init:
+    <<: *airflow-common
+    command: >
+      bash -c "airflow db migrate && ./deploy/init-alembic.sh"
+    container_name: airflow-init
+    restart: "no"
+    depends_on:
+      pg-airflow:
+        condition: service_healthy
+      pg-shop:
+        condition: service_healthy
+
+volumes:
+  airflow_metadata_data:
+  shop_transactional_data:
+  superset_home:

@@ -1,0 +1,22 @@
+FROM apache/superset:latest
+
+ARG ADDITIONAL_REQUIREMENTS="duckdb duckdb-engine"
+
+USER root
+WORKDIR /app
+
+RUN /app/.venv/bin/python -m ensurepip --default-pip &&             \
+    /app/.venv/bin/pip install --no-cache-dir --upgrade pip &&      \
+    /app/.venv/bin/pip install --no-cache-dir                       \
+        snowflake-sqlalchemy snowflake-connector-python==4.7.3      \
+        ${ADDITIONAL_REQUIREMENTS}
+
+COPY ./deploy/init-superset.sh /init-superset.sh
+RUN chmod +x /init-superset.sh
+
+COPY ./deploy/init-superset.py /app/init-superset.py
+COPY ./deploy/superset_dashboards.zip /tmp/superset_dashboards.zip
+RUN chmod +r /tmp/superset_dashboards.zip
+
+USER superset
+ENTRYPOINT [ "/init-superset.sh" ]
